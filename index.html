@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<meta name='viewport' content='width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0'>
+<!-- three.js library -->
+<script src='vendor/three.js/build/three.js'></script>
+<!-- <script src='vendor/three.js/examples/js/libs/stats.min.js'></script> -->
+<!-- ar.js -->
+<script src="build/ar.js"></script>
+
+<script src="js/postprocessing/EffectComposer.js"></script>
+<script src="js/postprocessing/RenderPass.js"></script>
+<script>THREEx.ArToolkitContext.baseURL = '/'</script>
+
+<!-- Bind window error for error handling -->
+<script>
+	window.addEventListener('error', function(event) {
+		alert("ERROR: " + event.message + " at " + event.filename + " : " + event.lineno + " : " + event.colno);
+	});
+</script>
+<script id="vertexShader" type="x-shader/x-vertex">
+    #ifdef GL_ES
+    precision highp float;
+    #endif
+  
+    varying vec2 vUv;
+    varying vec3 norm;
+      
+    void main()
+    {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      norm = normal;
+    }  
+    </script>
+    
+    <script id="fragmentShader" type="x-shader/x-vertex"> 
+        #ifdef GL_ES
+        precision highp float;
+        #endif
+        float colormap_red(float x) {
+            if (x < 0.0) {
+                return 124.0 / 255.0;
+            } else if (x <= 1.0) {
+                return (128.0 * sin(6.25 * (x + 0.5)) + 128.0) / 255.0;
+            } else {
+                return 134.0 / 255.0;
+            }
+        }
+        
+        
+        float colormap_green(float x) {
+            if (x < 0.0) {
+                return 121.0 / 255.0;
+            } else if (x <= 1.0) {
+                return (63.0 * sin(x * 99.72) + 97.0) / 255.0;
+            } else {
+                return 52.0 / 255.0;
+            }
+        }
+        
+        float colormap_blue(float x) {
+            if (x < 0.0) {
+                return 131.0 / 255.0;
+            } else if (x <= 1.0) {
+                return (128.0 * sin(6.23 * x) + 128.0) / 255.0;
+            } else {
+                return 121.0 / 255.0;
+            }
+        }
+        
+        vec4 colormap(float x) {
+            return vec4(colormap_red(x), colormap_green(x), colormap_blue(x), 1.0);
+        }
+
+
+        varying vec2 vUv;
+        varying vec3 norm;
+        uniform sampler2D texture;
+          
+        void main()
+        {
+          // use the xy normal to look up the texture position
+          // and convert the [-1, 1] range to [0, 1]
+          vec2 lookup = (norm.xy + 1.0) / 2.0;
+          
+          // generate an attenuation factor to darken the back
+          float attenuation = min(1.0, norm.z + 1.0);
+          
+          // flip the x component to mirror the image
+          lookup.x = 1.0 - lookup.x;
+          
+          // look up and output the attenuated texture color
+          vec3 color = texture2D(texture, lookup).rgb;
+          vec4 mapper = colormap(norm.x);
+          gl_FragColor = vec4(color * attenuation, 1.0)*mapper*norm.xyyx +0.5;
+        }
+    
+    </script>
+<body style='margin : 0px; overflow: hidden; font-family: Monospace;'><div style='position: absolute; top: 10px; width:100%; text-align: center;z-index:1';>
+	<script>
+    function Ripple (u,v,time){
+    let d = Math.sqrt(u*u + v*v);
+    let p = new THREE.Vector3();
+    p.x = u;
+    p.y = Math.sin(Math.PI * (4 * d -time));
+    //p.y += 0.2*Math.cos(15*Math.PI * (4 * d -time));
+    p.y /= 1 + 10 * d;
+    p.z = v;
+    return p;
+}
+    function Wave(u,v, time){
+    let p = new THREE.Vector3();
+    p.x = u;
+    p.y = Math.sin(Math.PI*  (u + v + time));
+    p.z = v;
+    return p;
+}
+function twistedTorus(u,v,time){
+    let r1 = 0.7 + 0.1 * Math.sin(Math.PI * (5*u + 0.5 * time));
+    let r2 = 0.15 + 0.05 * Math.sin(Math.PI * (8 * u + 4 * v + 2 * time));
+    let s = r1 + r2 * Math.cos(Math.PI * v);
+    let p = new THREE.Vector3;
+    p.x = 2*s * Math.sin(Math.PI * u);
+    p.y = 6*r2 * Math.sin(Math.PI * v);
+    p.z = 2*s * Math.cos(Math.PI * u);
+    return p;
+}
+
+
+	//////////////////////////////////////////////////////////////////////////////////
+	//		Init
+	//////////////////////////////////////////////////////////////////////////////////
+
+	// init renderer
+	var renderer	= new THREE.WebGLRenderer({
+		// antialias	: true,
+		alpha: true
+	});
+	renderer.setClearColor(new THREE.Color('lightgrey'), 0)
+	// renderer.setPixelRatio( 2 );
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	renderer.domElement.style.position = 'absolute'
+	renderer.domElement.style.top = '0px'
+	renderer.domElement.style.left = '0px'
+	document.body.appendChild( renderer.domElement );
+
+	// array of functions for the rendering loop
+	var onRenderFcts= [];
+
+	// init scene and camera
+	var scene	= new THREE.Scene();
+
+	//////////////////////////////////////////////////////////////////////////////////
+	//		Initialize a basic camera
+	//////////////////////////////////////////////////////////////////////////////////
+    //cubemap camera
+    // create a scene for the cubemap
+    //const videoTexture = new THREE.VideoTexture(videoElement);
+  
+  // create the shader material
+  
+	// Create a camera
+	var camera = new THREE.Camera();
+    scene.add(camera);
+    // initialize
+    let newbie=[];
+    let resolution = 100;
+    let step = 2 / resolution;
+    clock = new THREE.Clock();
+    let scale = step * 2;
+    let testGeo = new THREE.BoxBufferGeometry(1,1,1,1);
+    let testMat = new THREE.MeshNormalMaterial();
+    let group = new THREE.Group();
+
+	////////////////////////////////////////////////////////////////////////////////
+	//          handle arToolkitSource
+	////////////////////////////////////////////////////////////////////////////////
+
+	var artoolkitProfile = new THREEx.ArToolkitProfile()
+	artoolkitProfile.sourceWebcam()
+
+
+	var arToolkitSource = new THREEx.ArToolkitSource(artoolkitProfile.sourceParameters)
+
+	arToolkitSource.init(function onReady(){
+        setTimeout(() => {
+            onResize()
+        }, 100);
+	})
+
+	// handle resize
+	window.addEventListener('resize', function(){
+		onResize()
+	})
+	function onResize(){
+		arToolkitSource.onResizeElement()
+		arToolkitSource.copyElementSizeTo(renderer.domElement)
+		if( arToolkitContext.arController !== null ){
+			arToolkitSource.copyElementSizeTo(arToolkitContext.arController.canvas)
+		}
+	}
+
+	////////////////////////////////////////////////////////////////////////////////
+	//          initialize arToolkitContext
+	////////////////////////////////////////////////////////////////////////////////
+
+	// create atToolkitContext
+	var arToolkitContext = new THREEx.ArToolkitContext(artoolkitProfile.contextParameters)
+	// initialize it
+	arToolkitContext.init(function onCompleted(){
+		// copy projection matrix to camera
+		camera.projectionMatrix.copy( arToolkitContext.getProjectionMatrix() );
+	})
+
+	// update artoolkit on every frame
+	onRenderFcts.push(function(){
+		if( arToolkitSource.ready === false )	return
+
+		arToolkitContext.update( arToolkitSource.domElement )
+	})
+
+
+	////////////////////////////////////////////////////////////////////////////////
+	//          Create a ArMarkerControls
+	////////////////////////////////////////////////////////////////////////////////
+
+	var markerGroup = new THREE.Group
+	scene.add(markerGroup)
+	var markerControls = new THREEx.ArMarkerControls(arToolkitContext, markerGroup, {
+		type : 'pattern',
+		patternUrl : THREEx.ArToolkitContext.baseURL + 'data/data/patt.hiro',
+	})
+
+
+	// // build a smoothedControls
+	// var smoothedGroup = new THREE.Group()
+	// scene.add(smoothedGroup)
+	// var smoothedControls = new THREEx.ArSmoothedControls(smoothedGroup)
+	// onRenderFcts.push(function(delta){
+	// 	smoothedControls.update(markerGroup)
+	// })
+
+	//////////////////////////////////////////////////////////////////////////////////
+	//		add an object in the scene
+	//////////////////////////////////////////////////////////////////////////////////
+
+
+	var markerScene = new THREE.Scene()
+	markerGroup.add(markerScene)
+
+	// var mesh = new THREE.AxesHelper()
+    // markerScene.add(mesh)
+
+    let loader = new THREE.TextureLoader();
+	
+	let videoTexture = new THREE.VideoTexture( arToolkitSource.domElement );
+    videoTexture.minFilter = THREE.LinearFilter;
+    
+    const shaderMaterial = new THREE.ShaderMaterial({
+    vertexShader: document.getElementById( 'vertexShader' ).textContent,
+		fragmentShader: document.getElementById( 'fragmentShader' ).textContent,
+    uniforms: {
+      texture: new THREE.Uniform(videoTexture),
+    },
+    side: THREE.DoubleSide,
+  });
+
+
+
+    const cubeMapScene = new THREE.Scene();
+    const cubeCamera = new THREE.CubeCamera(1, 1000, 128);
+
+    // populate the cubemap scene with a sphere & shader
+    const sphere = new THREE.SphereGeometry(100, 15, 15);
+    const sphereMesh = new THREE.Mesh(sphere, shaderMaterial);
+    cubeMapScene.add(sphereMesh);
+	
+	// let refractMaterial = new THREE.ShaderMaterial({
+	// 	uniforms: {
+	// 		texture: { value: videoTexture },
+	// 		refractionRatio: { value: 0.75 },
+	// 		distance: { value: 1.0 },
+	// 		opacity: { value: 0.8 },
+	// 		tint: { value: new THREE.Vector3(0.8, 0.8, 1.0) }
+	// 	},
+	// 	vertexShader: document.getElementById( 'vertexShader' ).textContent,
+	// 	fragmentShader: document.getElementById( 'fragmentShader' ).textContent,
+	// 	transparent: true
+    // });
+    const material = new THREE.MeshStandardMaterial( {
+    color: 0xffffff,
+    metalness: 1.0,
+    roughness: 0.0,
+    envMap: cubeCamera.renderTarget.texture,
+  });
+    
+//     const material = new THREE.MeshStandardMaterial({ 
+//   color: 0x00aaff, 
+//   envMap: envmap, 
+//   metalness: 0.9, 
+//   roughness: 0.1,
+// });
+// material.onBeforeCompile = (shader) => {
+//     shader.uniforms.time = { value: 0}
+//     shader.vertexShader = `
+//         uniform float time;
+//     ` + shader.vertexShader
+
+//     const token = '#include <begin_vertex>'
+//     const customTransform = `
+//         vec3 transformed = vec3(position);
+//         float freq = length(transformed.xy);
+//         float amp = 0.1;
+//         float angle = -time*1.0 + freq;
+//         transformed += sin(angle+time)*amp;
+
+//         objectNormal = normalize(vec3(0.0, amp * freq * cos(angle), 1.0));
+//         vNormal = normalMatrix * objectNormal;
+//     `
+//     shader.vertexShader = shader.vertexShader.replace(token,customTransform)
+//     matShader = shader
+// }
+    
+
+    for(let i = 0; i< resolution*resolution; i++){
+        // if(i % 3 === 0){
+    newbie[i] = new THREE.Mesh(testGeo,material);
+        // } else {
+        //     newbie[i] = new THREE.Mesh(testGeo,testMat);
+        // }
+    //milk.position.x = i;
+    newbie[i].position.y = testGeo.parameters.height/2
+    //milk.position.z = i;
+    newbie[i].scale.x = scale;
+    newbie[i].scale.y = scale;
+    newbie[i].scale.z = scale;
+    group.add(newbie[i]);
+}
+    markerScene.add(group);
+
+	// add a torus knot
+	// var geometry	= new THREE.CubeGeometry(1,1,1);
+	// var material	= new THREE.MeshNormalMaterial({
+	// 	transparent : true,
+	// 	opacity: 0.5,
+	// 	side: THREE.DoubleSide
+	// });
+	// var mesh	= new THREE.Mesh( geometry, material );
+	// mesh.position.y	= geometry.parameters.height/2
+	// markerScene.add(mesh)
+
+	// var geometry	= new THREE.TorusKnotGeometry(0.3,0.1,64,16);
+	// var material	= new THREE.MeshNormalMaterial();
+	// var mesh	= new THREE.Mesh( geometry, material );
+	// mesh.position.y	= 0.5
+	// markerScene.add( mesh );
+
+	onRenderFcts.push(function(delta){
+        group.rotation.y += delta * Math.PI * .1
+        group.rotation.x -= delta * Math.PI * .1
+        group.rotation.z -= delta * Math.PI * .01
+        
+        let time = clock.getElapsedTime();
+    	let v = 0.5 * step -1;
+    	for ( let i = 0, x = 0, z = 0; i < newbie.length; i++, x++){
+        	if(x === resolution) {
+            	x = 0;
+            	z += 1;
+            	v = (z + 0.5) * step - 1;
+        }
+        let u = (x + 0.5) * step - 1;
+      // let scaled_u = scaleValue(u,[0,newbie.length],[0,2 * Math.PI]);
+      // let scaled_v = scaleValue(v,[0,newbie.length],[-2*Math.PI,2*Math.PI]);
+       newbie[i].position.copy(Wave(u,v,time));
+    }
+	})
+
+	//////////////////////////////////////////////////////////////////////////////////
+	//		render the whole thing on the page
+	//////////////////////////////////////////////////////////////////////////////////
+	// var stats = new Stats();
+	// document.body.appendChild( stats.dom );
+	// // render the scene
+	onRenderFcts.push(function(){
+        cubeCamera.update(renderer, cubeMapScene);
+		renderer.render( scene, camera );
+		// stats.update();
+	})
+
+	// run the rendering loop
+	var lastTimeMsec= null
+	requestAnimationFrame(function animate(nowMsec){
+		// keep looping
+		requestAnimationFrame( animate );
+		// measure time
+		lastTimeMsec	= lastTimeMsec || nowMsec-1000/60
+		var deltaMsec	= Math.min(200, nowMsec - lastTimeMsec)
+		lastTimeMsec	= nowMsec
+		// call each update function
+		onRenderFcts.forEach(function(onRenderFct){
+			onRenderFct(deltaMsec/1000, nowMsec/1000)
+		})
+	})
+</script></body>
