@@ -137,7 +137,8 @@ function twistedTorus(u,v,time){
 	});
 	renderer.setClearColor(new THREE.Color('lightgrey'), 0)
 	// renderer.setPixelRatio( 2 );
-	renderer.setSize( window.innerWidth, window.innerHeight );
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    renderer.setPixelRatio(window.devicePixelRatio);
 	renderer.domElement.style.position = 'absolute'
 	renderer.domElement.style.top = '0px'
 	renderer.domElement.style.left = '0px'
@@ -184,7 +185,7 @@ function twistedTorus(u,v,time){
 	arToolkitSource.init(function onReady(){
         setTimeout(() => {
             onResize()
-        }, 100);
+        }, 500);
 	})
 
 	// handle resize
